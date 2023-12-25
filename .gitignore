@@ -1,1 +1,8 @@
 *.DS_Store
+bin
+include
+lib
+pyvenv.cfg
+share
+lab10-gx.ipynb
+lab10_functional.ipynb
