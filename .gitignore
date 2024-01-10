@@ -1,4 +1,4 @@
-*.DS_Store
+.DS_Store
 bin
 include
 lib
@@ -7,3 +7,5 @@ share
 lab10-gx.ipynb
 lab10_functional.ipynb
 lab10_test.ipynb
+__pycache__
+Quixo.pdf
