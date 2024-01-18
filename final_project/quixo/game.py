@@ -97,8 +97,6 @@ class Game(object):
                     self)
                 ok = self.__move(from_pos, slide, self.current_player_idx)
             winner = self.check_winner()
-            print(f"player {self.current_player_idx} made take: {from_pos} and moved {next(name for name, value in vars(Move).items() if value == slide)}")
-            self.print()
         return winner
 
     def __move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:
@@ -106,23 +104,13 @@ class Game(object):
         if player_id > 2:
             return False
         # Oh God, Numpy arrays
-        # prev_value = deepcopy(self._board[(from_pos[1], from_pos[0])]) 
-        prev_value = deepcopy(self._board[(from_pos[0], from_pos[1])])
-        # acceptable = self.__take((from_pos[1], from_pos[0]), player_id)
-        acceptable = self.__take((from_pos[0], from_pos[1]), player_id)
+        prev_value = deepcopy(self._board[(from_pos[1], from_pos[0])])
+        acceptable = self.__take((from_pos[1], from_pos[0]), player_id)
         if acceptable:
-            # acceptable = self.__slide((from_pos[1], from_pos[0]), slide)
-            acceptable = self.__slide((from_pos[0], from_pos[1]), slide)
+            acceptable = self.__slide((from_pos[1], from_pos[0]), slide)
             if not acceptable:
-                # self._board[(from_pos[1], from_pos[0])] = deepcopy(prev_value)
-                self._board[(from_pos[0], from_pos[1])] = deepcopy(prev_value)
+                self._board[(from_pos[1], from_pos[0])] = deepcopy(prev_value)
         return acceptable
-
-    def move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:
-        ok = self.__move(from_pos, slide, player_id)
-        if ok:
-            self.current_player_idx = (self.current_player_idx+1)%2
-        return ok
 
     def __take(self, from_pos: tuple[int, int], player_id: int) -> bool:
         '''Take piece'''
@@ -221,89 +209,3 @@ class Game(object):
                 # move the piece down
                 self._board[(self._board.shape[0] - 1, from_pos[1])] = piece
         return acceptable
-
-    def check_move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:
-        '''Perform a move'''
-        if player_id > 2:
-            return False
-        acceptable = self.__check_take((from_pos[0], from_pos[1]), player_id) and self.__check_slide((from_pos[0], from_pos[1]), slide)
-        return acceptable
-
-    def __check_take(self, from_pos: tuple[int, int], player_id: int) -> bool:
-        '''Take piece'''
-        # acceptable only if in border
-        acceptable: bool = (
-            # check if it is in the first row
-            (from_pos[0] == 0 and from_pos[1] < 5)
-            # check if it is in the last row
-            or (from_pos[0] == 4 and from_pos[1] < 5)
-            # check if it is in the first column
-            or (from_pos[1] == 0 and from_pos[0] < 5)
-            # check if it is in the last column
-            or (from_pos[1] == 4 and from_pos[0] < 5)
-            # and check if the piece can be moved by the current player
-        ) and (self._board[from_pos] < 0 or self._board[from_pos] == player_id)
-        return acceptable
-
-    def __check_slide(self, from_pos: tuple[int, int], slide: Move) -> bool:
-        '''Slide the other pieces'''
-        # define the corners
-        SIDES = [(0, 0), (0, 4), (4, 0), (4, 4)]
-        # if the piece position is not in a corner
-        if from_pos not in SIDES:
-            # if it is at the TOP, it can be moved down, left or right
-            acceptable_top: bool = from_pos[0] == 0 and (
-                slide == Move.BOTTOM or slide == Move.LEFT or slide == Move.RIGHT
-            )
-            # if it is at the BOTTOM, it can be moved up, left or right
-            acceptable_bottom: bool = from_pos[0] == 4 and (
-                slide == Move.TOP or slide == Move.LEFT or slide == Move.RIGHT
-            )
-            # if it is on the LEFT, it can be moved up, down or right
-            acceptable_left: bool = from_pos[1] == 0 and (
-                slide == Move.BOTTOM or slide == Move.TOP or slide == Move.RIGHT
-            )
-            # if it is on the RIGHT, it can be moved up, down or left
-            acceptable_right: bool = from_pos[1] == 4 and (
-                slide == Move.BOTTOM or slide == Move.TOP or slide == Move.LEFT
-            )
-        # if the piece position is in a corner
-        else:
-            # if it is in the upper left corner, it can be moved to the right and down
-            acceptable_top: bool = from_pos == (0, 0) and (
-                slide == Move.BOTTOM or slide == Move.RIGHT)
-            # if it is in the lower left corner, it can be moved to the right and up
-            acceptable_left: bool = from_pos == (4, 0) and (
-                slide == Move.TOP or slide == Move.RIGHT)
-            # if it is in the upper right corner, it can be moved to the left and down
-            acceptable_right: bool = from_pos == (0, 4) and (
-                slide == Move.BOTTOM or slide == Move.LEFT)
-            # if it is in the lower right corner, it can be moved to the left and up
-            acceptable_bottom: bool = from_pos == (4, 4) and (
-                slide == Move.TOP or slide == Move.LEFT)
-        # check if the move is acceptable
-        acceptable: bool = acceptable_top or acceptable_bottom or acceptable_left or acceptable_right
-        return acceptable
-
-    # return all the available moves for the player
-    def available_moves(self, player_idx) -> list:
-        a_m = []
-        for x in range(4):
-            from_pos = (x, 0)
-            for slide in Move:
-                if self.check_move(from_pos, slide, player_idx):
-                    a_m.append((from_pos, slide))
-            from_pos = (x, 4)
-            for slide in Move:
-                if self.check_move(from_pos, slide, player_idx):
-                    a_m.append((from_pos, slide))
-        for y in range(4):
-            from_pos = (0, y)
-            for slide in Move:
-                if self.check_move(from_pos, slide, player_idx):
-                    a_m.append((from_pos, slide))
-            from_pos = (4, y)
-            for slide in Move:
-                if self.check_move(from_pos, slide, player_idx):
-                    a_m.append((from_pos, slide))
-        return a_m

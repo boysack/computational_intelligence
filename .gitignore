@@ -9,3 +9,6 @@ lab10_functional.ipynb
 lab10_test.ipynb
 __pycache__
 Quixo.pdf
+mM_eval_log.txt
+mM_pruning_log.txt
+Q_quixo
