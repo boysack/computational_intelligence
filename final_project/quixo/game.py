@@ -89,6 +89,7 @@ class Game(object):
         players = [player1, player2]
         winner = -1
         while winner < 0:
+            #self.print()
             self.current_player_idx += 1
             self.current_player_idx %= len(players)
             ok = False
@@ -96,7 +97,10 @@ class Game(object):
                 from_pos, slide = players[self.current_player_idx].make_move(
                     self)
                 ok = self.__move(from_pos, slide, self.current_player_idx)
+            #print(f'player {self.current_player_idx} moved ({from_pos[0]}, {from_pos[1]}) {next(name for name, value in vars(Move).items() if value == slide)}')
             winner = self.check_winner()
+        #self.print()
+        #print(f'the winner is player {self.check_winner()}!')
         return winner
 
     def __move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:

@@ -19,15 +19,13 @@ COMP_RES = [{
      1:  1  # win
 }]
 
-PRUNING_LEVEL = 3
-
 class HumanPlayer(Player):
     def __init__(self) -> None:
         super().__init__()
 
     def make_move(self, game: 'MyGame') -> tuple[tuple[int, int], Move]:
-        col = int(input("insert a number from 1 to 5 to select the column -> "))-1
-        row = int(input("insert a number from 1 to 5 to select the row -> "))-1
+        col = int(input("insert a number from 0 to 4 to select the column -> "))
+        row = int(input("insert a number from 0 to 4 to select the row -> "))
         from_pos = (col, row)
         while True:
             move = input("insert a string with the direction you want to move the piece (TOP, BOTTOM, LEFT, RIGTH) -> ").upper()
@@ -46,18 +44,25 @@ class RandomPlayer(Player):
         return from_pos, move
 
 class MinMaxPlayer(Player):
-    def __init__(self, soft: bool = False, player: int = 0) -> None:
+    def __init__(self, soft: bool = False, player: int = 0, pruning_level: int = 3) -> None:
         super().__init__()
         self.soft = soft
         player = player % 2
         self.player = player
+        self.pruning_level = pruning_level
+
+        # recursion limit setting
+        import sys
+        if sys.getrecursionlimit() < (pruning_level+9):
+            sys.setrecursionlimit(pruning_level+9)
 
     def make_move(self, game: 'MyGame') -> tuple[tuple[int, int], Move]:
         g_copy = deepcopy(game)
         # try to implement something to get equally rewarded moves to be chosen randomly, and not just taken the first
-        move = self.minmax(g_copy)
-        from_pos = (move[0], move[1])
-        slide = move[2]
+        moves = self.minmax(g_copy)[0]
+        move = choice(moves)
+        from_pos = (move[0][0], move[0][1])
+        slide = move[1]
         return from_pos, slide
 
     def minmax(self, game: 'MyGame', level: int = 1, alpha = -np.inf, beta = np.inf) -> tuple[tuple[int, int], Move]:
@@ -65,12 +70,13 @@ class MinMaxPlayer(Player):
         available_moves = game.available_moves(player_id)
 
         if player_id == self.player: # my player plays always as MAX
-            best = [-1, -1, -1, -np.inf]
+            best = [[], -np.inf]
         else:
-            best = [-1, -1, -1, +np.inf]
+            best = [[], +np.inf]
 
-        if len(available_moves) == 0 or game.check_winner() != -1 or level > PRUNING_LEVEL:
-            return [-1, -1, -1, COMP_RES[self.player][game.check_winner()]]
+        if len(available_moves) == 0 or game.check_winner() != -1 or level > self.pruning_level:
+            #return [[], COMP_RES[self.player][game.check_winner()]]
+            return [[], self.get_reward(game)]
 
         for move in available_moves: # same level nodes
             from_pos = move[0]
@@ -82,7 +88,12 @@ class MinMaxPlayer(Player):
             else:
                 prev_values = deepcopy(game._board[:, from_pos[0]])
 
-            game.move(from_pos, slide, player_id)
+            # backup - player ??
+            #prev_player = game.current_player_idx
+
+            # make a move
+            if game.move(from_pos, slide, player_id) == False:
+                raise Exception("Invalid move chosen")
             score = self.minmax(game, level+1, alpha, beta)
 
             # restore - restore row/column
@@ -91,18 +102,23 @@ class MinMaxPlayer(Player):
             else:
                 game._board[:, from_pos[0]] = prev_values
 
-            score[0] = from_pos[0]
-            score[1] = from_pos[1]
-            score[2] = slide
-            
+            # restore - player ??
+            #game.current_player_idx = prev_player
+
+            score[0].append(move)
+
             if player_id == self.player: # my player plays always as MAX
-                if score[3] > best[3]:
+                if score[1] > best[1]:
                     best = score  # max value
-                    alpha = score[3]
+                    alpha = score[1]
+                elif score[1] == best[1]:
+                    best[0].extend(score[0])
             else:
-                if score[3] < best[3]:
+                if score[1] < best[1]:
                     best = score  # min value
-                    beta = score[3]
+                    beta = score[1]
+                elif score[1] == best[1]:
+                    best[0].extend(score[0])
 
             if self.soft:
                 if alpha >= beta: # <- PRUNE EVEN IF EQUAL
@@ -112,22 +128,48 @@ class MinMaxPlayer(Player):
                     break
         return best
 
+    def get_reward(self, g: 'MyGame'):
+        p = self.player
+        o = (self.player+1)%2
+        b = g.get_board()
+
+        # max number of player blocks for each row
+        r_max = np.sum(b == p, axis=1).max()
+        # max number of player blocks for each col
+        c_max = np.sum(b == p, axis=0).max()
+        # number of player blocks in the main diagonal
+        md_max = np.sum(np.diagonal(b) == p)
+        # number of player blocks in the other diagonal
+        od_max = np.sum(np.diagonal(np.fliplr(b)) == p)
+
+        # max number of player blocks for each row
+        o_r_max = np.sum(b == o, axis=1).max()
+        # max number of player blocks for each col
+        o_c_max = np.sum(b == o, axis=0).max()
+        # number of player blocks in the main diagonal
+        o_md_max = np.sum(np.diagonal(b) == o)
+        # number of player blocks in the other diagonal
+        o_od_max = np.sum(np.diagonal(np.fliplr(b)) == o)
+
+        return max(r_max, c_max, md_max, od_max) - max(o_r_max, o_c_max, o_md_max, o_od_max)
+
 class QPlayer(Player):
-    def __init__(self, alpha = .5, epsilon = 1.0, final_epsilon = 0.0, gamma = .8, input_filename = "Q_quixo", output_filename = "Q_quixo", mode: str = "val", player: int = 0, iterations: int = 1000) -> None:
+    def __init__(self, alpha = .5, epsilon = .8, final_epsilon = .8, gamma = .8, input_filename = "Q_quixo", output_filename = "Q_quixo", mode: str = "val", player: int = 0, iterations: int = 1000) -> None:
         super().__init__()
-        if os.path.isfile(input_filename):
+        if input_filename and os.path.isfile(input_filename):
             with open(input_filename, "rb") as f:
                 self.Q = pickle.load(f)
         else:
             self.Q = {}
         self.alpha = alpha
+        self.init_epsilon = epsilon
         self.epsilon = epsilon
         self.final_epsilon = final_epsilon
         self.gamma = gamma
         self.mode = mode
         self.player = player
         self.iterations = iterations
-    
+
         self.output_filename = output_filename
 
     # state: board, action: move = ((col, row), slide)
@@ -169,8 +211,7 @@ class QPlayer(Player):
             pickle.dump(self.Q, f)
 
     def train_test(self, second_player: Player = RandomPlayer()):
-        print("training QLearning agent...")
-        e = np.linspace(self.epsilon, self.final_epsilon, self.iterations)
+        e = np.linspace(self.init_epsilon, self.final_epsilon, self.iterations)
         self.mode = "train"
         for i in tqdm(range(self.iterations)):
             g = MyGame()
@@ -199,14 +240,15 @@ class QPlayer(Player):
                 from_pos, slide = player2.make_move(g)
                 g._Game__move(from_pos, slide, g.current_player_idx)
                 g.switch_player()
-            self.epsilon *= e[i]
+            self.epsilon = e[i]
         self.save_Q()
         self.mode = "val"
+        self.epsilon = self.init_epsilon
 
     def train(self, second_player: Player = RandomPlayer()):
-        print("training QLearning agent...")
-        self.mode = "train"
-        for _ in tqdm(range(self.iterations)):
+        self.mode = "train" # not necessary anymore
+        e = np.linspace(self.epsilon, self.final_epsilon, self.iterations)
+        for i in tqdm(range(self.iterations)):
             g = MyGame()
             player2 = second_player
 
@@ -228,48 +270,210 @@ class QPlayer(Player):
 
                 reward = COMP_RES[0][g.check_winner()]
                 self.update(state, (from_pos, slide), reward, next_state, g.available_moves(g.current_player_idx))
-            
-            self.epsilon *= self.rand_dec_rate
+            self.epsilon = e[i]
         self.save_Q()
-        self.mode = "val"
+        self.mode = "val" # not necessary anymore
+        self.epsilon = self.init_epsilon
 
-class ESPlayer(Player):
-    def __init__(self) -> None:
+class Individual:
+    def __init__(self, params: np.ndarray = None, second_player: Player = RandomPlayer(), n_games_fitness: int = 100) -> None:
+        if params is not None:
+            self.params = params
+        else:
+            params = np.random.rand(MyGame.MOVES_NUM) # don't know if, with gaussian mutation, it makes sense to have probability
+            params /= np.sum(params)
+            self.params = params
+        self.n_games_fitness = n_games_fitness
+        self.fitness = self.fitness_fun(second_player=second_player)
+    
+    def gaussian_mutation(self, s: float = .1):
+        params = np.random.normal(loc=self.params, scale=s)
+        params /= np.sum(params)
+        return Individual(params, second_player=RandomPlayer())
+
+    def fitness_fun(self, second_player: Player = RandomPlayer()) -> float:
+        wins = 0
+        ga = GAPlayer(params=self.params)
+        for _ in range(self.n_games_fitness):
+            g = MyGame()
+            win = COMP_RES[ga.player][g.play(ga, second_player)]
+            if (win == 1):
+                wins += 1
+        return wins/self.n_games_fitness
+
+    def __str__(self) -> str:
+        return f"{self.params}"
+    def __gt__(self, other):
+        return self.fitness > other.fitness
+    def __lt__(self, other):
+        return self.fitness < other.fitness
+    def __ge__(self, other):
+        return self.fitness >= other.fitness
+    def __le__(self, other):
+        return self.fitness <= other.fitness
+
+class GAPlayer(Player):
+    def __init__(self,
+                 input_filename = "GA_quixo",
+                 output_filename = "GA_quixo",
+                 mode: str = "val",
+                 n_games_fitness: int = 500,
+                 player: int = 0,
+                 second_player: Player = RandomPlayer(),
+                 iterations: int = 50,
+                 params: np.ndarray = None,
+                 pop_size: int = 20,
+                 off_size: int = 10,
+                 tou_size: int = 10,  # increase to increase selective pressure
+                 mut_prob: float = .15,
+                 mut_rep: float = .05,
+                 sigma: float = .01
+                ):
         super().__init__()
+        
+        # population size
+        self.pop_size = pop_size
+        # offpring size
+        self.off_size = off_size
+        # tournament size
+        self.tou_size = min(tou_size, pop_size)
+
+        ## NOT USED (NO RECOMBINATION FOR NOW)
+        self.mut_prob = mut_prob
+        self.mut_rep = mut_rep
+
+        # gaussian mutation standard deviation
+        self.sigma = sigma
+
+        # number of times new offspring is created
+        self.iterations = iterations
+        # number of games that are performed to evaluate a solution
+        self.n_games_fitness = n_games_fitness
+
+        # player idx
+        self.player = player
+        # opponent player type
+        self.second_player = second_player
+        # NOT USED
+        self.mode = mode
+        self.output_filename = output_filename
+
+        if params is not None:
+            self.params = params
+            self.fitness = self.win_rate()
+
+        elif input_filename and os.path.isfile(input_filename):
+            with open(input_filename, "rb") as f:
+                restore = pickle.load(f)
+                self.params = restore[0]
+                self.fitness = restore[1] #?
+        else:
+            params = np.random.rand(MyGame.MOVES_NUM) # don't know if, with gaussian mutation, it makes sense to have probability
+            params /= np.sum(params)
+            self.params = params
+            self.fitness = self.win_rate()
+
+    #### IN FORSE: QUELLE PRESE DA INDIVIDUAL
+    def fitness_fun(self, params: np.ndarray) -> float:
+        return GAPlayer(params=params,
+                         second_player=self.second_player,
+                         n_games_fitness = self.n_games_fitness,
+                         player = self.player
+                         ).fitness
+
+    def win_rate(self) -> float:
+        wins = 0
+        for _ in range(self.n_games_fitness):
+            g = MyGame()
+            win = COMP_RES[self.player][g.play(self, self.second_player)]
+            if (win == 1):
+                wins += 1
+        return wins/self.n_games_fitness
+    
+    def gaussian_mutation(self, parent):
+        params = np.random.normal(loc=parent, scale=self.sigma)
+        params = np.abs(params)
+        params /= np.sum(params)
+        return params, self.fitness_fun(params=params)
+    #### IN FORSE: QUELLE PRESE DA INDIVIDUAL
+
+    def generate_offspring(self, population: list = None, init: bool=False) -> list:
+        """ # in teoria
+        # if rand < mut_prob:
+        #   mut
+        # else:
+        #   rec
+        # per ora solo mutation """
+        offspring = []
+        if init:
+            # random initialization of population
+            for _ in range(self.pop_size):
+                params = np.random.rand(MyGame.MOVES_NUM)
+                params = np.abs(params)
+                params /= np.sum(params)
+                offspring.append((params, self.fitness_fun(params)))
+        else:
+            for _ in range(self.off_size):
+                # just mutation for now
+                champion = self.tournament_selection(population)
+                new_individual = self.gaussian_mutation(champion[0])
+                offspring.append(new_individual)
+        return offspring
+    
+    def tournament_selection(self, population: np.ndarray) -> Individual:
+        idx = np.random.choice(range(len(population)), size=self.tou_size, replace=False)
+        tournament = [population[i] for i in idx]
+        champion = max(tournament, key=lambda i: i[1])
+        return champion
+
+    def train(self):
+        # population initialization
+        population = []
+        begin = True
+        for _ in tqdm(range(self.iterations)):
+            new_offspring = self.generate_offspring(population, init=begin)
+            population += new_offspring
+            population.sort(key=lambda i: i[1], reverse=True)
+            population = population[::-1]
+            population = population[:self.pop_size]
+            begin = False
+
+        self.params = population[0]
+        self.save_params()
 
     def make_move(self, game: 'MyGame') -> tuple[tuple[int, int], Move]:
-        pass
-    
-    def fitness():
-        ''' do x games and evaluate the strategy '''
-        ''' necessary to have a state: what is a state in this case? '''
-        pass
-    
-    def generate_offspring():
-        ''' necessary to have an individual: what is the individual? '''
-        pass
+        move = random.choices(game.possible_moves_l, weights=self.params)[0]
+        available_moves = game.available_moves(self.player)
+        while move not in available_moves:
+            move = random.choices(game.possible_moves_l, weights=self.params)[0]
+        from_pos, slide = move
+        return from_pos, slide
+
+    def save_params(self):
+        with open(self.output_filename, 'wb') as f:
+            pickle.dump(self.params, f)
 
 class MyGame(Game):
+    MOVES_NUM = 44
+
     def __init__(self):
         super(MyGame, self).__init__()
+        self.possible_moves_l = self.available_moves(0)
 
-    # to call the move externally on a game deepcopy
     def move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:
-        ok = self._Game__move((from_pos[1], from_pos[0]), slide, player_id)
+        ok = self._Game__move(from_pos, slide, player_id)
         if ok:
-            self.current_player_idx = (self.current_player_idx+1)%2
+            self.switch_player()
         return ok
 
     # receive (column, row) moves
     def check_move(self, from_pos: tuple[int, int], slide: Move, player_id: int) -> bool:
-        '''Perform a move'''
         if player_id > 2:
             return False
         acceptable = self.__check_take((from_pos[1], from_pos[0]), player_id) and self.__check_slide((from_pos[1], from_pos[0]), slide)
         return acceptable
-    
+
     def __check_take(self, from_pos: tuple[int, int], player_id: int) -> bool:
-        '''Take piece'''
         # acceptable only if in border
         acceptable: bool = (
             # check if it is in the first row
@@ -285,7 +489,6 @@ class MyGame(Game):
         return acceptable
 
     def __check_slide(self, from_pos: tuple[int, int], slide: Move) -> bool:
-        '''Slide the other pieces'''
         # define the corners
         SIDES = [(0, 0), (0, 4), (4, 0), (4, 4)]
         # if the piece position is not in a corner
@@ -326,18 +529,17 @@ class MyGame(Game):
 
     def available_moves(self, player_idx) -> list:
         a_m = []
-        for y in range(4):
+        for y in range(5):
             from_pos = (y, 0)
             for slide in Move:
-                # check move invert order in (row, col) -> ok
                 if self.check_move(from_pos, slide, player_idx):
-                    # so appended from_pos is in the form (col, row) -> ok
                     a_m.append((from_pos, slide))
             from_pos = (y, 4)
             for slide in Move:
                 if self.check_move(from_pos, slide, player_idx):
                     a_m.append((from_pos, slide))
-        for x in range(4):
+        # for x in range(5):
+        for x in range(1,4): # ignore corners since already appended
             from_pos = (0, x)
             for slide in Move:
                 if self.check_move(from_pos, slide, player_idx):
@@ -347,43 +549,102 @@ class MyGame(Game):
                 if self.check_move(from_pos, slide, player_idx):
                     a_m.append((from_pos, slide))
         return a_m
+    
+    def possible_moves(self):
+        p_m = []
+        for y in range(5):
+            from_pos = (y, 0)
+            for slide in Move:
+                p_m.append((from_pos, slide))
+            from_pos = (y, 4)
+            for slide in Move:
+                p_m.append((from_pos, slide))
+        for x in range(1, 4):
+            from_pos = (0, x)
+            for slide in Move:
+                p_m.append((from_pos, slide))
+            from_pos = (4, x)
+            for slide in Move:
+                p_m.append((from_pos, slide))
+        return p_m
 
     def switch_player(self):
         self.current_player_idx+=1
         self.current_player_idx%=2
 
-def player_test(pov: int = 0, player1: Player = RandomPlayer(), player2: Player = RandomPlayer(), evaluation_step: int = 1_000):
+def player_test(pov: int = 0, player1: Player = RandomPlayer(), player2: Player = RandomPlayer(), evaluation_step: int = 10_000):
     wins = 0
-    ties = 0
     for _ in tqdm(range(evaluation_step)):
         g = MyGame()
         winner = g.play(player1, player2)
         if COMP_RES[pov][winner]==1:
             wins += 1
-        elif COMP_RES[pov][winner]==0:
-            ties += 1
-    print(f"wins: {wins} | ties: {ties} | losses: {evaluation_step-wins-ties}")
+    print(f"wins: {wins}")
     print(f"win rate: {wins/evaluation_step:.2%}")
 
 if __name__ == '__main__':
-    # recursion limit setting for MinMax
-    import sys
-    if sys.getrecursionlimit() < (PRUNING_LEVEL+9):
-        sys.setrecursionlimit(PRUNING_LEVEL+9)
-    
-    # evaluation games number setting
-    if len(sys.argv) == 1:
-        total = 1_000
-    else:
-        total = int(sys.argv[1])
-
-    print("-------- MinMax --------")
-    
-    # player_test(player1=MinMaxPlayer(), evaluation_step=100)
-
-    print("------- QLearning ------")
-    qplayer = QPlayer(input_filename="")
+    """
+    print("-------- Random (just testing functionality) --------")
+    player_test(evaluation_step=50)
+    """
+    """
+    print("----------------------- MinMax ----------------------")
+    player_test(player1=MinMaxPlayer(), evaluation_step=50)
+    """
+    """
+    print("--------------------- QLearning ---------------------")
+    print(" - training new model and testing it...")
+    qplayer = QPlayer(input_filename=None)
     qplayer.train_test()
     #qplayer.train()
-
     player_test(player1=qplayer)
+    """
+    """
+    print("--------------------- QLearning ---------------------")
+    print(" - testing a previous lucky run...")
+    qplayer = QPlayer(input_filename="Q_model")
+    player_test(player1=qplayer)
+    """
+    """
+    print("------------------------- GA ------------------------")
+    gaplayer = GAPlayer()
+    ga.train()
+    player_test(player1=gaplayer)
+    """
+
+    # policy creation
+    """ base = "Q_iter"
+    folder = "./Q_test/"
+    for i in range(10):
+        filename = folder+base+"_tt"+f"_{i:02}"
+        q = QPlayer(output_filename=filename)
+        q.train_test()
+        print(f"testing: {filename}")
+        player_test(player1=q, evaluation_step=1000)
+
+        filename = folder+base+"_t"+f"_{i:02}"
+        q = QPlayer(output_filename=filename)
+        q.train()
+        print(f"testing: {filename}")
+        player_test(player1=q, evaluation_step=1000) """
+
+    # best policies test
+    """ policy_name = "./Q_test/Q_iter_tt_01"
+    print(f"{policy_name}")
+    player_test(player1=QPlayer(input_filename=policy_name), evaluation_step=100_000)
+
+    policy_name = "./Q_test/Q_iter_tt_05"
+    print(f"{policy_name}")
+    player_test(player1=QPlayer(input_filename=policy_name), evaluation_step=100_000)
+
+    policy_name = "./Q_test/Q_iter_t_06"
+    print(f"{policy_name}")
+    player_test(player1=QPlayer(input_filename=policy_name), evaluation_step=100_000)
+
+    policy_name = "./Q_test/Q_iter_tt_08"
+    print(f"{policy_name}")
+    player_test(player1=QPlayer(input_filename=policy_name), evaluation_step=100_000)
+
+    policy_name = "./Q_test/Q_iter_t_09"
+    print(f"{policy_name}")
+    player_test(player1=QPlayer(input_filename=policy_name), evaluation_step=100_000) """
