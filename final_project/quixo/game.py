@@ -15,7 +15,6 @@ class Move(Enum):
     LEFT = 2
     RIGHT = 3
 
-
 class Player(ABC):
     def __init__(self) -> None:
         '''You can change this for your player if you need to handle state/have memory'''
